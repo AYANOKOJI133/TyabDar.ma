@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>TyabDar.ma | Premium Food Prototype</title>
+    
+    <!-- React & DOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <!-- Fonts: Plus Jakarta Sans -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#FF6B00',
+                        primaryGlow: '#FF8533',
+                        dark: '#09090B',
+                        surface: 'rgba(24, 24, 27, 0.75)',
+                        surfaceSolid: '#18181b',
+                    },
+                    animation: {
+                        'pop-in': 'popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
+                        'slide-up': 'slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                        'spin-once': 'spinOnce 0.5s ease-in-out',
+                        'float': 'float 3s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        popIn: {
+                            '0%': { opacity: '0', transform: 'scale(0.9) translateY(20px)' },
+                            '100%': { opacity: '1', transform: 'scale(1) translateY(0)' },
+                        },
+                        slideUp: {
+                            '0%': { transform: 'translateY(100%)' },
+                            '100%': { transform: 'translateY(0)' },
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-5px)' },
+                        },
+                        spinOnce: {
+                            '0%': { transform: 'rotate(0deg)' },
+                            '100%': { transform: 'rotate(360deg)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            background-color: #09090B; 
+            color: white; 
+            overflow: hidden; 
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        #map { 
+            height: 100vh; 
+            width: 100vw; 
+            z-index: 0; 
+            background: #111; 
+        }
+
+        /* High Contrast Dark Map Styling */
+        .leaflet-layer {
+            filter: grayscale(100%) invert(100%) contrast(1.1) brightness(0.8);
+        }
+        .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+            background: #18181b;
+            color: white;
+            border: 1px solid #333;
+            border-radius: 12px;
+        }
+
+        /* Glassmorphism Utilities */
+        .glass-panel {
+            background: rgba(24, 24, 27, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .glass-button {
+            background: rgba(24, 24, 27, 0.8);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        }
+        .glass-button:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: scale(1.05);
+            border-color: rgba(255, 107, 0, 0.5);
+        }
+        .glass-button:active {
+            transform: scale(0.95);
+        }
+
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        .marker-pin { animation: popIn 0.5s ease-out forwards; }
+        
+        .marker-pulse {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: rgba(255, 107, 0, 0.4);
+            animation: ripple 2s infinite;
+            z-index: -1;
+        }
+        @keyframes ripple {
+            0% { transform: scale(1); opacity: 0.8; }
+            100% { transform: scale(3); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- MOCK BACKEND SERVICE ---
+        const MockSocketService = {
+            listeners: {},
+            on: (event, callback) => { MockSocketService.listeners[event] = callback; },
+            emit: (event, data) => {
+                console.log(`[Socket] Emit: ${event}`, data);
+                if (event === 'request_meal') {
+                    setTimeout(() => {
+                        const cooks = MockSocketService.generateFakeCooks(data.lat, data.lng);
+                        if (MockSocketService.listeners['cooks_found']) {
+                            MockSocketService.listeners['cooks_found'](cooks);
+                        }
+                    }, 1800);
+                }
+            },
+            generateFakeCooks: (lat, lng) => {
+                const count = Math.floor(Math.random() * 3) + 3;
+                const names = ["Chef Youssef", "Mama's Tagine", "Riad Spice", "Atlas Kitchen", "Sunrise Grill"];
+                const meals = ["Couscous", "Bastilla", "Rfissa", "Pastilla", "Tanjia"];
+                
+                return Array.from({ length: count }, (_, i) => {
+                    const latOffset = (Math.random() - 0.5) * 0.025;
+                    const lngOffset = (Math.random() - 0.5) * 0.025;
+                    const price = Math.floor(Math.random() * 40) + 30;
+                    
+                    return {
+                        id: `cook_${Date.now()}_${i}`,
+                        name: names[Math.floor(Math.random() * names.length)],
+                        rating: (4 + Math.random()).toFixed(1),
+                        price: price,
+                        prepTime: Math.floor(Math.random() * 40) + 20,
+                        lat: lat + latOffset,
+                        lng: lng + lngOffset,
+                        meal: meals[Math.floor(Math.random() * meals.length)],
+                        avatar: `https://i.pravatar.cc/150?u=${i+10}`
+                    };
+                });
+            }
+        };
+
+        // --- COMPONENTS ---
+
+        const MapView = ({ userLocation, cooks, selectedCook, onCookClick, mapRef }) => {
+            const localMapRef = useRef(null);
+
+            useEffect(() => {
+                const initialLat = userLocation ? userLocation.lat : 33.5731;
+                const initialLng = userLocation ? userLocation.lng : -7.5898;
+
+                if (!localMapRef.current) {
+                    localMapRef.current = L.map('map', {
+                        zoomControl: false,
+                        attributionControl: false
+                    }).setView([initialLat, initialLng], 14);
+
+                    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                        maxZoom: 19
+                    }).addTo(localMapRef.current);
+
+                    if (mapRef) mapRef.current = localMapRef.current;
+                }
+            }, []);
+
+            // User Marker
+            useEffect(() => {
+                if (!localMapRef.current || !userLocation) return;
+                
+                const userIcon = L.divIcon({
+                    className: 'bg-transparent',
+                    html: `<div class="relative w-6 h-6 flex items-center justify-center">
+                             <div class="absolute w-full h-full bg-blue-500/30 rounded-full animate-ping"></div>
+                             <div class="relative w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-[0_0_15px_rgba(59,130,246,0.5)]"></div>
+                           </div>`,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                });
+
+                if (localMapRef.current._userMarker) {
+                    localMapRef.current.removeLayer(localMapRef.current._userMarker);
+                }
+                localMapRef.current._userMarker = L.marker([userLocation.lat, userLocation.lng], { icon: userIcon }).addTo(localMapRef.current);
+            }, [userLocation]);
+
+            // Cook Markers
+            useEffect(() => {
+                if (!localMapRef.current) return;
+                if (localMapRef.current._cookMarkers) {
+                    localMapRef.current._cookMarkers.forEach(m => localMapRef.current.removeLayer(m));
+                }
+                localMapRef.current._cookMarkers = [];
+
+                cooks.forEach((cook, index) => {
+                    const delay = index * 100;
+                    const cookIcon = L.divIcon({
+                        className: 'bg-transparent marker-pin',
+                        html: `
+                            <div style="animation-delay: ${delay}ms" class="flex flex-col items-center cursor-pointer group">
+                                <div class="relative mb-1">
+                                    <div class="marker-pulse"></div>
+                                    <div class="w-10 h-10 bg-surface border-2 border-primary rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(255,107,0,0.4)] z-10 relative transition-transform group-hover:scale-110">
+                                        <i class="ph-fill ph-cooking-pot text-primary text-xl"></i>
+                                    </div>
+                                </div>
+                                <div class="bg-white text-dark text-[11px] font-bold px-2.5 py-1 rounded-full shadow-lg border border-gray-200 transform group-hover:-translate-y-1 transition-transform whitespace-nowrap z-20">
+                                    ${cook.price} MAD
+                                </div>
+                                <div class="w-0.5 h-3 bg-white/40 mt-[-2px] z-0"></div>
+                            </div>
+                        `,
+                        iconSize: [60, 80],
+                        iconAnchor: [30, 75]
+                    });
+
+                    const marker = L.marker([cook.lat, cook.lng], { icon: cookIcon })
+                        .addTo(localMapRef.current)
+                        .on('click', () => onCookClick(cook));
+                    localMapRef.current._cookMarkers.push(marker);
+                });
+            }, [cooks, onCookClick]);
+
+            return <div id="map" className="absolute inset-0 z-0"></div>;
+        };
+
+        const MealSelector = ({ selectedMeal, onSelect, onRequest, isLoading, className = "" }) => {
+            // Updated meals with Images instead of Icons
+            const meals = [
+                { 
+                    id: 'couscous', 
+                    name: 'Couscous', 
+                    img: 'image copy.png' 
+                },
+                { 
+                    id: 'bastilla', 
+                    name: 'Bastilla', 
+                    img: 'image copy 2.png' 
+                },
+                { 
+                    id: 'rfissa', 
+                    name: 'Rfissa', 
+                    img: 'image copy 3.png' 
+                },
+                { 
+                    id: 'tagine', 
+                    name: 'Tagine', 
+                    img: 'image copy 4.png' 
+                },
+            ];
+
+            return (
+                <div className={`absolute bottom-[5rem] left-0 right-0 z-20 p-4 pb-8 pointer-events-none sm:pb-8 ${className}`}>
+                    <div className="glass-panel max-w-md mx-auto rounded-3xl p-2 pointer-events-auto transform transition-all duration-300">
+                        <div className="flex items-center space-x-2 overflow-x-auto hide-scrollbar p-1">
+                            {meals.map(meal => (
+                                <button
+                                    key={meal.id}
+                                    onClick={() => onSelect(meal.id)}
+                                    className={`flex-shrink-0 relative w-16 h-20 rounded-2xl border overflow-hidden shadow-lg group focus:outline-none transition-all duration-200 ${
+                                        selectedMeal === meal.id 
+                                        ? 'scale-105 ring-2 ring-primary ring-offset-2 shadow-[0_0_15px_rgba(255,107,0,0.5)]' 
+                                        : 'border-transparent'
+                                    }`}
+                                >
+                                    {/* Background Image */}
+                                    <img src={meal.img} alt={meal.name} className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-110" />
+                                    
+                                    {/* Dark Gradient Overlay for Text Readability */}
+                                    <div className="absolute bottom-0 w-full h-1/2 bg-gradient-to-t from-black/80 to-transparent pt-4 pb-1.5 px-1">
+                                        <span className="block text-[10px] font-bold text-white leading-tight text-center truncate shadow-sm">
+                                            {meal.name}
+                                        </span>
+                                    </div>
+
+                                    {/* Active Border Highlight */}
+                                    <div className={`absolute inset-0 border-2 transition-all duration-300 ${
+                                        selectedMeal === meal.id 
+                                        ? 'border-primary' 
+                                        : 'border-transparent'
+                                    }`}>
+                                        {/* Inner Border for contrast against any image */}
+                                        <div className="absolute inset-[1px] border border-white/30 rounded-xl"></div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="px-4 pt-2 pb-1">
+                            <button
+                                onClick={onRequest}
+                                disabled={!selectedMeal || isLoading}
+                                className={`w-full py-4 rounded-2xl font-bold text-lg shadow-lg transition-all flex items-center justify-center space-x-2 relative overflow-hidden group ${
+                                    !selectedMeal ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-primary to-orange-600 text-white shadow-orange-900/40 active:scale-[0.98]'
+                                }`}
+                            >
+                                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                                
+                                {isLoading ? (
+                                    <>
+                                        <i className="ph ph-spinner animate-spin text-2xl"></i>
+                                        <span>Finding Best Cooks...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span>Request {meals.find(m => m.id === selectedMeal)?.name || 'Meal'}</span>
+                                        <i className="ph-bold ph-arrow-right"></i>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+
+        const CookSheet = ({ cook, onClose, onContact }) => {
+            if (!cook) return null;
+
+            return (
+                <div className="fixed inset-0 z-30 flex items-center justify-center p-4 pointer-events-none">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity opacity-0 animate-in fade-in duration-300 pointer-events-auto" onClick={onClose}></div>
+                    
+                    <div className="bg-surfaceSolid w-full max-w-sm sm:max-w-lg rounded-3xl shadow-2xl pointer-events-auto relative z-10 border border-white/10 overflow-hidden animate-pop-in flex flex-col max-h-[85vh]">
+                        
+                        <div className="h-40 bg-gradient-to-br from-gray-800 to-gray-900 relative flex-shrink-0">
+                             <div className="absolute -top-10 -right-10 w-40 h-40 bg-primary/20 rounded-full blur-3xl"></div>
+                             <div className="absolute top-10 left-10 w-20 h-20 bg-blue-500/10 rounded-full blur-2xl"></div>
+
+                             <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/40 backdrop-blur text-white flex items-center justify-center hover:bg-white/20 transition-colors z-20">
+                                <i className="ph ph-x"></i>
+                             </button>
+
+                             <div className="absolute -bottom-10 left-6 p-1 bg-surfaceSolid rounded-2xl z-10">
+                                <img src={cook.avatar} alt={cook.name} className="w-20 h-20 rounded-xl object-cover border-2 border-white/10" />
+                             </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto px-6 pt-12 pb-4 hide-scrollbar">
+                            <div className="flex justify-between items-start mb-2">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white mb-1">{cook.name}</h2>
+                                    <div className="flex items-center space-x-2">
+                                        <div className="flex items-center bg-yellow-500/10 px-2 py-0.5 rounded-md">
+                                            <i className="ph-fill ph-star text-yellow-500 text-sm mr-1"></i>
+                                            <span className="text-yellow-500 font-bold text-sm">{cook.rating}</span>
+                                        </div>
+                                        <span className="text-gray-500 text-sm">• {cook.meal}</span>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-3xl font-bold text-white">{cook.price} <span className="text-base font-normal text-gray-400">MAD</span></div>
+                                    <div className="text-xs text-gray-500 mt-1 flex items-center justify-end">
+                                        <i className="ph ph-clock mr-1"></i> {cook.prepTime} min
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3 my-6">
+                                {[
+                                    { label: "Hygiene", val: "A+", icon: "ph-shield-check" },
+                                    { label: "Speed", val: "Fast", icon: "ph-lightning" },
+                                    { label: "Taste", val: "Top", icon: "ph-thumbs-up" }
+                                ].map((stat, i) => (
+                                    <div key={i} className="bg-white/5 rounded-xl p-3 flex flex-col items-center justify-center border border-white/5">
+                                        <i className={`ph ${stat.icon} text-xl text-gray-400 mb-1`}></i>
+                                        <span className="text-xs font-bold text-white">{stat.val}</span>
+                                        <span className="text-[10px] text-gray-500 uppercase tracking-wider">{stat.label}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="p-4 pt-0 border-t border-white/5 bg-surfaceSolid flex-shrink-0">
+                            <button 
+                                onClick={onContact}
+                                className="w-full py-4 bg-white text-black rounded-xl font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-gray-100 transition-all active:scale-95 flex items-center justify-center space-x-2"
+                            >
+                                <i className="ph-fill ph-chat-circle-text text-xl text-primary"></i>
+                                <span>Contact Cook</span>
+                            </button>
+                        </div>
+
+                    </div>
+                </div>
+            );
+        };
+
+        const ChatModal = ({ isOpen, onClose, cookName }) => {
+            const [messages, setMessages] = useState([]);
+            const [inputValue, setInputValue] = useState('');
+            const chatEndRef = useRef(null);
+
+            useEffect(() => {
+                if (isOpen) {
+                    setTimeout(() => addMessage("Salam! 👋 I saw your request. I have fresh ingredients ready.", 'cook'), 500);
+                    setTimeout(() => addMessage(`I can prepare the meal in 25 mins. Does that work?`, 'cook'), 1500);
+                } else {
+                    setMessages([]);
+                }
+            }, [isOpen]);
+
+            useEffect(() => {
+                chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, [messages]);
+
+            const addMessage = (text, sender) => {
+                setMessages(prev => [...prev, { id: Date.now(), text, sender }]);
+            };
+
+            const handleSend = (e) => {
+                e.preventDefault();
+                if (!inputValue.trim()) return;
+                addMessage(inputValue, 'user');
+                setInputValue('');
+                setTimeout(() => addMessage("Perfect! Consider it confirmed. 🍲", 'cook'), 1200);
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={onClose}></div>
+                    
+                    <div className="bg-surfaceSolid w-full max-w-sm h-[85vh] sm:h-auto sm:max-h-[600px] sm:max-w-md rounded-3xl shadow-2xl flex flex-col relative z-10 overflow-hidden border border-white/10">
+                        
+                        <div className="p-4 pt-6 flex items-center justify-between border-b border-white/5 flex-shrink-0">
+                            <div className="flex items-center">
+                                <button onClick={onClose} className="mr-4 text-gray-400 hover:text-white">
+                                    <i className="ph ph-caret-left text-2xl"></i>
+                                </button>
+                                <div>
+                                    <h3 className="font-bold text-white text-lg">{cookName}</h3>
+                                    <div className="flex items-center text-xs text-green-400">
+                                        <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span> Online
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-5 space-y-6 bg-dark/50">
+                            {messages.map(msg => (
+                                <div key={msg.id} className={`flex w-full ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[80%] px-5 py-3 rounded-2xl text-sm leading-relaxed shadow-md ${
+                                        msg.sender === 'user' 
+                                        ? 'bg-gradient-to-r from-primary to-orange-600 text-white rounded-tr-sm' 
+                                        : 'bg-white/10 border border-white/5 text-gray-200 rounded-tl-sm'
+                                    }`}>
+                                        {msg.text}
+                                    </div>
+                                </div>
+                            ))}
+                            <div ref={chatEndRef} />
+                        </div>
+
+                        <div className="p-4 bg-surfaceSolid border-t border-white/5 flex-shrink-0">
+                            <form onSubmit={handleSend} className="relative">
+                                <input
+                                    type="text"
+                                    value={inputValue}
+                                    onChange={(e) => setInputValue(e.target.value)}
+                                    placeholder="Type a message..."
+                                    className="w-full bg-white/5 border border-white/10 rounded-full pl-5 pr-14 py-3.5 text-sm text-white focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all placeholder-gray-600"
+                                />
+                                <button 
+                                    type="submit" 
+                                    className="absolute right-1.5 top-1.5 w-10 h-10 bg-primary text-white rounded-full flex items-center justify-center hover:bg-orange-600 transition-colors shadow-lg"
+                                >
+                                    <i className="ph-fill ph-paper-plane-right"></i>
+                                </button>
+                            </form>
+                        </div>
+
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [userLocation, setUserLocation] = useState({ lat: 33.5731, lng: -7.5898 });
+            const [selectedMeal, setSelectedMeal] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+            const [cooks, setCooks] = useState([]);
+            const [selectedCook, setSelectedCook] = useState(null);
+            const [isChatOpen, setIsChatOpen] = useState(false);
+            
+            // Use a ref to track the previous state of the chat
+            const prevIsChatOpenRef = useRef(false);
+            
+            const mapRef = useRef(null);
+
+            useEffect(() => {
+                MockSocketService.on('cooks_found', (data) => {
+                    setIsLoading(false);
+                    setCooks(data);
+                });
+
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+                        () => console.log("Geo denied, using default.")
+                    );
+                }
+            }, []);
+
+            // RELOAD LOGIC: Watch for transition from true (Open) to false (Closed)
+            useEffect(() => {
+                // If it was open before, and now it's closed, reload the page.
+                if (prevIsChatOpenRef.current && !isChatOpen) {
+                    console.log("Chat closed. Reloading page...");
+                    window.location.reload();
+                }
+                // Update the ref for the next render
+                prevIsChatOpenRef.current = isChatOpen;
+            }, [isChatOpen]);
+
+            const handleRequestMeal = () => {
+                if (!selectedMeal) return;
+                
+                setIsLoading(true);
+                setCooks([]); 
+                MockSocketService.emit('request_meal', {
+                    meal: selectedMeal,
+                    lat: userLocation.lat,
+                    lng: userLocation.lng
+                });
+            };
+
+            const handleCookClick = (cook) => setSelectedCook(cook);
+            
+            const handleContactCook = () => {
+                setSelectedCook(null);
+                setTimeout(() => setIsChatOpen(true), 100);
+            };
+
+            const handleChatClose = () => {
+                setIsChatOpen(false);
+                setIsLoading(false);
+            };
+
+            const goToLocation = () => {
+                if (mapRef.current && userLocation) {
+                    mapRef.current.flyTo([userLocation.lat, userLocation.lng], 16, {
+                        animate: true,
+                        duration: 1.5
+                    });
+                }
+            };
+
+            const controlsVisible = !selectedCook && !isChatOpen;
+
+            return (
+                <div className="relative w-full h-screen bg-dark overflow-hidden">
+                    <MapView 
+                        userLocation={userLocation} 
+                        cooks={cooks} 
+                        selectedCook={selectedCook}
+                        onCookClick={handleCookClick}
+                        mapRef={mapRef}
+                    />
+
+                    <div className="absolute top-6 left-0 right-0 px-6 z-10 flex justify-between items-start pointer-events-none">
+                        <div className="glass-panel px-4 py-2 rounded-full flex items-center space-x-3 pointer-events-auto shadow-lg">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-orange-600 flex items-center justify-center font-bold text-white text-xs shadow-inner">
+                                T
+                            </div>
+                            <div>
+                                <h1 className="text-sm font-bold text-white leading-none">TyabDar<span className="text-primary">.ma</span></h1>
+                                <p className="text-[10px] text-gray-400 font-medium tracking-wide mt-0.5">PREMIUM DELIVERY</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* === MOBILE CONTROLS === */}
+                    <div className={`sm:hidden absolute bottom-0 left-0 right-0 z-20 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>
+                        
+                        <button 
+                            onClick={goToLocation}
+                            className="absolute bottom-[18.5rem] right-4 pointer-events-auto glass-button w-12 h-12 rounded-full flex items-center justify-center text-white shadow-xl group"
+                        >
+                            <i className="ph ph-crosshair text-xl group-hover:animate-spin-once transition-transform"></i>
+                        </button>
+
+                        <MealSelector 
+                            selectedMeal={selectedMeal}
+                            onSelect={setSelectedMeal}
+                            onRequest={handleRequestMeal}
+                            isLoading={isLoading}
+                        />
+                    </div>
+
+                    {/* === PC CONTROLS === */}
+                    <div className={`hidden sm:flex absolute bottom-8 inset-x-0 z-20 justify-center items-center gap-6 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>
+                        
+                        <MealSelector 
+                            selectedMeal={selectedMeal}
+                            onSelect={setSelectedMeal}
+                            onRequest={handleRequestMeal}
+                            isLoading={isLoading}
+                            className="!relative !bottom-0 !left-0 !right-0 !p-0 !pb-0 pointer-events-auto"
+                        />
+                        
+                        <button 
+                            onClick={goToLocation}
+                            className="pointer-events-auto glass-button w-12 h-12 rounded-full flex items-center justify-center text-white shadow-xl group"
+                        >
+                            <i className="ph ph-crosshair text-xl group-hover:animate-spin-once transition-transform"></i>
+                        </button>
+                    </div>
+
+                    <CookSheet 
+                        cook={selectedCook} 
+                        onClose={() => setSelectedCook(null)} 
+                        onContact={handleContactCook}
+                    />
+                    
+                    <ChatModal 
+                        isOpen={isChatOpen} 
+                        onClose={handleChatClose}
+                        cookName={selectedCook ? selectedCook.name : 'Cook'}
+                    />
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
